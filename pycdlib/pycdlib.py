@@ -5746,9 +5746,22 @@ class PyCdlib(object):
 
         self.isohybrid_mbr = None
 
-    def set_custom_date(self, date_seconds):
-        # FIXME: implement this
-        pass
+    def set_record_date(self, rec, date_seconds):
+        # type: (Union[dr.DirectoryRecord, udfmod.UDFFileEntry], float) -> None
+        """
+        Set the date of a directory record to a particular date.
+
+        Parameters:
+         rec - The Directory Record to set the date on.
+         date_seconds - The new date, in seconds since the epoch, to set the
+                        record to.
+        Returns:
+         Nothing.
+        """
+        if isinstance(rec, dr.DirectoryRecord):
+            rec.set_date(date_seconds)
+        elif isinstance(rec, udfmod.UDFFileEntry):
+            rec.set_date(date_seconds)
 
     def full_path_from_dirrecord(self, rec, rockridge=False):
         # type: (Union[dr.DirectoryRecord, udfmod.UDFFileEntry], bool) -> str
