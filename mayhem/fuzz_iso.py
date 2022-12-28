@@ -10,23 +10,22 @@ import io
 with atheris.instrument_imports(include=['pycdlib']):
     import pycdlib
 
+# Exceptions
+from pycdlib.pycdlibexception import PyCdlibException
+iso = pycdlib.PyCdlib()
 def TestOneInput(data):
+    if len(data) < 2048:
+        return -1
+
     fdp = fuzz_helpers.EnhancedFuzzedDataProvider(data)
-    #iso = pycdlib.PyCdlib()
-    #iso.new()
-    #try:
-     #   with fdp.ConsumeMemoryFile() as out, io.BytesIO() as extracted:
-      #      iso.open_fp(out)
-       #     iso.get_file_from_iso_fp(extracted, iso_path="/" + fdp.ConsumeRemainingString())
-        #    iso.close()
-    #except PyCdlibInvalidInput:
-     #   return -1
     try:
-        bea = pycdlib.udf.BEAVolumeStructure()
-        bea.parse(fdp.ConsumeRemainingBytes(), fdp.ConsumeIntInRange(0, 10))
-        fp = io.BytesIO()
-        pycdlib.utils.zero_pad(fp, fdp.ConsumeInt())
-    except struct.error:
+        with fdp.ConsumeMemoryFile(all_data=True) as fp:
+            iso.open_fp(fp)
+            iso.list_children(iso_path='/')
+            # for _ in iso.list_children(iso_path='/'):
+            #     pass
+            iso.close()
+    except (PyCdlibException, struct.error, IndexError) as e:
         return -1
 def main():
     atheris.Setup(sys.argv, TestOneInput)

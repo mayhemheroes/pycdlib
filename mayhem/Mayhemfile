@@ -6,4 +6,5 @@ testsuite:
 cmds:
   - cmd: /src/mayhem/fuzz_iso.py
     libfuzzer: true
-    timeout: 12
+    timeout: 15
+    max_length: 60000
