@@ -1,0 +1,10 @@
+project: pycdlib
+target: fuzz-iso
+testsuite:
+    - file://mayhem/testsuite
+
+cmds:
+  - cmd: /src/mayhem/fuzz_iso.py
+    libfuzzer: true
+    timeout: 15
+    max_length: 60000
