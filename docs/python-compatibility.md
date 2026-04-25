@@ -1,5 +1,5 @@
 # Python Compatibility
-The [test suite](design.md#testing) ensures that the core PyCdlib code works with all versions of Python greater than or equal to Python 3.7.
+The [test suite](design.md#testing) ensures that the core PyCdlib code works with all versions of Python greater than or equal to Python 3.10.
 
 ---
 
