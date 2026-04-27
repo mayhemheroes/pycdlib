@@ -432,17 +432,17 @@ def _yield_children(rec, rr):
             continue
         last = fi
 
-        skip_child = False
         if rr:
             if child.rock_ridge is not None:
-                for inner_child in child.children:
-                    if inner_child.is_dotdot():
-                        if inner_child.rock_ridge is not None and inner_child.rock_ridge.parent_link_record_exists():
-                            skip_child = True
-                        break
-
-                if skip_child:
-                    continue
+                # For a non-root directory, dot sits at children[0] and dotdot
+                # at children[1] (file_ident sort: b'\x00' < b'\x01' < ...).
+                # If dotdot carries a PL record this is a relocated
+                # destination, which is yielded via the cl_to_moved_dr path
+                # elsewhere — skip it here to avoid a duplicate.
+                if len(child.children) >= 2:
+                    dotdot = child.children[1]
+                    if dotdot.rock_ridge is not None and dotdot.rock_ridge.parent_link_record_exists():
+                        continue
 
                 if child.rock_ridge.child_link_record_exists() and \
                    child.rock_ridge.cl_to_moved_dr is not None and \
@@ -489,18 +489,20 @@ def _find_dr_record_by_name(vd, path, encoding):
 
     entry = root_dir_record
 
-    tmpdr = dr.DirectoryRecord()
-
     while True:
         child = None
 
         thelist = entry.children
+        # Bisect for currpath among the real entries.  Children index 0/1 are
+        # dot/dotdot, so we start at 2.  All entries from index 2 on are real
+        # names that compare bytewise, matching dr.__lt__ on the real-entry
+        # path; comparing file_ident directly avoids materializing a scratch
+        # DirectoryRecord just to drive __lt__.
         lo = 2
         hi = len(thelist)
         while lo < hi:
             mid = (lo + hi) // 2
-            tmpdr.file_ident = currpath
-            if thelist[mid] < tmpdr:
+            if thelist[mid].file_ident < currpath:
                 lo = mid + 1
             else:
                 hi = mid
