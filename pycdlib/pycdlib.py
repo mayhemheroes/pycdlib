@@ -85,21 +85,17 @@ def _split_iso9660_filename(fullname):
     Returns:
      A tuple containing the name, extension, and version.
     """
-    namesplit = fullname.split(b';')
-    version = b''
-    if len(namesplit) > 1:
-        version = namesplit.pop()
-
-    rest = b';'.join(namesplit)
-
-    dotsplit = rest.split(b'.')
-    if len(dotsplit) == 1:
-        name = dotsplit[0]
+    # Peel off `;version` (if any) from the right, then `.extension` (if any)
+    # from the remainder.  rpartition does one right-to-left scan and avoids
+    # building intermediate lists, unlike the previous split+join pairs.
+    name_ext, sep, version = fullname.rpartition(b';')
+    if not sep:
+        name_ext = version
+        version = b''
+    name, sep, extension = name_ext.rpartition(b'.')
+    if not sep:
+        name = extension
         extension = b''
-    else:
-        name = b'.'.join(dotsplit[:-1])
-        extension = dotsplit[-1]
-
     return (name, extension, version)
 
 
