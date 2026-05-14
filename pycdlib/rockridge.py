@@ -17,6 +17,7 @@
 """Classes and utilities to support Rock Ridge extensions."""
 
 import bisect
+import operator
 import struct
 
 from pycdlib import dates
@@ -39,6 +40,27 @@ EXT_SRC_109 = b'PLEASE CONTACT DISC PUBLISHER FOR SPECIFICATION SOURCE.  SEE PUB
 EXT_ID_112 = b'IEEE_P1282'
 EXT_DES_112 = b'THE IEEE P1282 PROTOCOL PROVIDES SUPPORT FOR POSIX FILE SYSTEM SEMANTICS'
 EXT_SRC_112 = b'PLEASE CONTACT THE IEEE STANDARDS DEPARTMENT, PISCATAWAY, NJ, USA FOR THE P1282 SPECIFICATION'
+
+# Single-instance SUSP/RRIP record types -- only one of each is allowed per
+# directory record.  Each entry maps the on-disk 2-byte rtype to an
+# operator.attrgetter for the corresponding field on RockRidgeEntries.
+# Using attrgetter (implemented in C) avoids per-call getattr() and the
+# per-iteration `rtype.decode('utf-8').lower() + '_record'` string
+# allocation inside RockRidge.parse.
+_RR_SINGLE_INSTANCE_FIELDS = {
+    b'SP': operator.attrgetter('sp_record'),
+    b'RR': operator.attrgetter('rr_record'),
+    b'CE': operator.attrgetter('ce_record'),
+    b'PX': operator.attrgetter('px_record'),
+    b'ST': operator.attrgetter('st_record'),
+    b'ER': operator.attrgetter('er_record'),
+    b'PN': operator.attrgetter('pn_record'),
+    b'CL': operator.attrgetter('cl_record'),
+    b'PL': operator.attrgetter('pl_record'),
+    b'RE': operator.attrgetter('re_record'),
+    b'TF': operator.attrgetter('tf_record'),
+    b'SF': operator.attrgetter('sf_record'),
+}
 
 
 class RRSPRecord:
@@ -2541,21 +2563,24 @@ class RockRidge:
             self.ce_entries = RockRidgeEntries()
         return self.ce_entries
 
-    def has_entry(self, name):
-        # type: (str) -> bool
+    def has_entry(self, rtype):
+        # type: (bytes) -> bool
         """
         An internal method to tell if we have already parsed an entry of the
-        named type.
+        given type.
 
         Parameters:
-         name - The name of the entry to check.
+         rtype - The on-disk 2-byte SUSP/RRIP record tag (e.g. b'SP', b'TF')
+                 of a single-instance record type, as listed in
+                 _RR_SINGLE_INSTANCE_FIELDS.
         Returns:
-         True if we have already parsed an entry of the named type, False
+         True if we have already parsed an entry of this type, False
          otherwise.
         """
-        if getattr(self.dr_entries, name):
+        get = _RR_SINGLE_INSTANCE_FIELDS[rtype]
+        if get(self.dr_entries) is not None:
             return True
-        return self.ce_entries is not None and bool(getattr(self.ce_entries, name))
+        return self.ce_entries is not None and get(self.ce_entries) is not None
 
     def parse(self, record, is_first_dir_record_of_root, bytes_to_skip,
               continuation, dr_name):
@@ -2613,10 +2638,8 @@ class RockRidge:
 
             recslice = record[offset:]
 
-            if rtype in (b'SP', b'RR', b'CE', b'PX', b'ST', b'ER',
-                         b'PN', b'CL', b'PL', b'RE', b'TF', b'SF'):
-                recname = rtype.decode('utf-8').lower() + '_record'
-                if self.has_entry(recname):
+            if rtype in _RR_SINGLE_INSTANCE_FIELDS:
+                if self.has_entry(rtype):
                     raise pycdlibexception.PyCdlibInvalidISO('Only single %s record supported' % (rtype.decode('utf-8')))
 
             if rtype == b'SP':
