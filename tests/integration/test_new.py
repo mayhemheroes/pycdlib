@@ -2759,7 +2759,7 @@ def test_new_rock_ridge_creation_time_round_trip():
     rec = iso2.get_record(rr_path='/foo')
     assert(rec.rock_ridge is not None)
     tf = rec.rock_ridge.dr_entries.tf_record
-    if tf is None:
+    if tf is None and rec.rock_ridge.ce_entries is not None:
         tf = rec.rock_ridge.ce_entries.tf_record
     assert(tf is not None)
     assert(tf.creation_time is not None)
@@ -2803,7 +2803,7 @@ def test_new_add_hard_link_creation_time_round_trip_rr():
     iso2.open_fp(io.BytesIO(out.getvalue()))
     rec = iso2.get_record(rr_path='/foo2')
     tf = rec.rock_ridge.dr_entries.tf_record
-    if tf is None:
+    if tf is None and rec.rock_ridge.ce_entries is not None:
         tf = rec.rock_ridge.ce_entries.tf_record
     assert(tf is not None)
     assert(tf.creation_time is not None)
@@ -2811,7 +2811,7 @@ def test_new_add_hard_link_creation_time_round_trip_rr():
     # The original link's DR keeps its default flags (no creation_time).
     rec_orig = iso2.get_record(rr_path='/foo')
     tf_orig = rec_orig.rock_ridge.dr_entries.tf_record
-    if tf_orig is None:
+    if tf_orig is None and rec_orig.rock_ridge.ce_entries is not None:
         tf_orig = rec_orig.rock_ridge.ce_entries.tf_record
     assert(tf_orig is not None)
     assert(tf_orig.creation_time is None)

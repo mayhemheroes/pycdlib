@@ -1187,7 +1187,9 @@ class PyCdlib:
                 self._set_rock_ridge(max(rr, rr_ce))
 
                 if not saw_rrip_er and new_record.rock_ridge is not None:
-                    er = new_record.rock_ridge.dr_entries.er_record or new_record.rock_ridge.ce_entries.er_record
+                    er = new_record.rock_ridge.dr_entries.er_record
+                    if er is None and new_record.rock_ridge.ce_entries is not None:
+                        er = new_record.rock_ridge.ce_entries.er_record
                     if er is not None and er.ext_id in (rockridge.EXT_ID_109, rockridge.EXT_ID_112):
                         saw_rrip_er = True
 
@@ -6531,7 +6533,10 @@ class PyCdlib:
                 raise pycdlibexception.PyCdlibInvalidInput('Cannot fetch a rr_path from a non-Rock Ridge ISO')
             rec = self._find_rr_record(utils.normpath(kwargs['rr_path']))
             if rec.rock_ridge is not None:
-                if rec.rock_ridge.dr_entries.px_record is not None or rec.rock_ridge.ce_entries.px_record is not None:
+                has_px = rec.rock_ridge.dr_entries.px_record is not None
+                if not has_px and rec.rock_ridge.ce_entries is not None:
+                    has_px = rec.rock_ridge.ce_entries.px_record is not None
+                if has_px:
                     file_mode = rec.rock_ridge.get_file_mode()
 
         # Neither Joliet nor ISO know the file_mode, and we don't support setting
