@@ -29,7 +29,7 @@ from pycdlib import utils
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import List, Optional, Tuple, Type, Union  # noqa: F401
+    from typing import Dict, List, Optional, Tuple, Type, Union  # noqa: F401
     # NOTE: this import has to be here to avoid circular deps
     from pycdlib import inode  # noqa: F401
 
@@ -3786,7 +3786,12 @@ class UDFFileEntry:
     def __init__(self):
         # type: () -> None
         self.alloc_descs = []  # type: List[Union[UDFShortAD, UDFLongAD, UDFInlineAD]]
-        self.fi_descs = []  # type: List[UDFFileIdentifierDescriptor]
+        # Insertion-ordered: dict (Python 3.7+) preserves insertion order, so
+        # iteration via .values() gives the same sequence the on-disk record
+        # cares about.  The dict key is the descriptor's raw on-disk `fi`
+        # field, which is in whatever encoding the descriptor uses (latin-1
+        # or utf-16_be).  Lookup is O(1); ordered iteration via .values().
+        self.fi_descs = {}  # type: Dict[bytes, UDFFileIdentifierDescriptor]
         self._initialized = False
         self.parent = None  # type: Optional[UDFFileEntry]
         self.hidden = False
@@ -4032,7 +4037,7 @@ class UDFFileEntry:
         if self.icb_tag.file_type != 4:
             raise pycdlibexception.PyCdlibInvalidInput('Can only add a UDF File Identifier to a directory')
 
-        self.fi_descs.append(new_fi_desc)
+        self.fi_descs[new_fi_desc.fi] = new_fi_desc
 
         num_bytes_to_add = UDFFileIdentifierDescriptor.length(len(new_fi_desc.fi))
 
@@ -4067,20 +4072,10 @@ class UDFFileEntry:
         if not self._initialized:
             raise pycdlibexception.PyCdlibInternalError('UDF File Entry not initialized')
 
-        tmp_fi_desc = UDFFileIdentifierDescriptor()
-        tmp_fi_desc.isparent = False
-        tmp_fi_desc.fi = name
-
-        # If flags bit 3 is set, the entries are sorted.
-        desc_index = len(self.fi_descs)
-        for index, fi_desc in enumerate(self.fi_descs):
-            if fi_desc.fi == name:
-                desc_index = index
-                break
-        if desc_index == len(self.fi_descs) or self.fi_descs[desc_index].fi != name:
+        this_desc = self.fi_descs.get(name)
+        if this_desc is None:
             raise pycdlibexception.PyCdlibInvalidInput('Cannot find file to remove')
 
-        this_desc = self.fi_descs[desc_index]
         if this_desc.is_dir():
             if this_desc.file_entry is None:
                 raise pycdlibexception.PyCdlibInternalError('No UDF File Entry for UDF File Descriptor')
@@ -4093,7 +4088,7 @@ class UDFFileEntry:
         new_num_extents = utils.ceiling_div(self.info_len, logical_block_size)
         self.alloc_descs[0].extent_length = self.info_len
 
-        del self.fi_descs[desc_index]
+        del self.fi_descs[name]
 
         return old_num_extents - new_num_extents
 
@@ -4247,24 +4242,23 @@ class UDFFileEntry:
         if self.icb_tag.file_type != 4 or not self.fi_descs:
             raise pycdlibexception.PyCdlibInvalidInput('Could not find path')
 
+        # fi_descs is keyed on the raw on-disk fi bytes, which can be either
+        # latin-1 or utf-16_be depending on what the descriptor uses.  Try
+        # both encodings of currpath; whichever matches an entry in this
+        # directory wins.  Latin-1 is tried first to preserve the original
+        # linear-scan precedence (a latin-1 entry was matched ahead of a
+        # utf-16_be entry with the same logical name).
         tmp = currpath.decode('utf-8')
         try:
             latin1_currpath = tmp.encode('latin-1')
         except (UnicodeDecodeError, UnicodeEncodeError):
             latin1_currpath = b''
-        ucs2_currpath = tmp.encode('utf-16_be')
 
         child = None
-
-        for fi_desc in self.fi_descs:
-            if latin1_currpath and fi_desc.encoding == 'latin-1':
-                eq = fi_desc.fi == latin1_currpath
-            else:
-                eq = fi_desc.fi == ucs2_currpath
-
-            if eq:
-                child = fi_desc
-                break
+        if latin1_currpath:
+            child = self.fi_descs.get(latin1_currpath)
+        if child is None:
+            child = self.fi_descs.get(tmp.encode('utf-16_be'))
 
         if child is None:
             raise pycdlibexception.PyCdlibInvalidInput('Could not find path')
@@ -4287,7 +4281,7 @@ class UDFFileEntry:
         if not self._initialized:
             raise pycdlibexception.PyCdlibInternalError('UDF File Entry not initialized')
 
-        self.fi_descs.append(file_ident)
+        self.fi_descs[file_ident.fi] = file_ident
 
     def is_dot(self):
         # type: () -> bool

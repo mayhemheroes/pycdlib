@@ -1444,7 +1444,7 @@ class PyCdlib:
             udf_file_entry.set_data_location(current_extent,
                                              current_extent - part_start)
             offset = 0
-            for d in udf_file_entry.fi_descs:
+            for d in udf_file_entry.fi_descs.values():
                 if offset >= self.logical_block_size:
                     # The offset has spilled over into a new extent.  Increase
                     # the current extent by one, and update the offset.  Note
@@ -3027,10 +3027,14 @@ class PyCdlib:
                     written_file_entry_inodes.add(id(udf_file_entry.inode))
 
                 if isdir:
-                    outfp.seek(udf_file_entry.fi_descs[0].extent_location() * self.logical_block_size)
+                    # fi_descs is an insertion-ordered dict; the first entry
+                    # is the directory's `.` parent record, whose extent is
+                    # where this directory's content lives.
+                    parent_fi_desc = next(iter(udf_file_entry.fi_descs.values()))
+                    outfp.seek(parent_fi_desc.extent_location() * self.logical_block_size)
                     # FIXME: for larger directories, we'll actually need to
                     # iterate over the alloc_descs and write them
-                    for fi_desc in udf_file_entry.fi_descs:
+                    for fi_desc in udf_file_entry.fi_descs.values():
                         rec = fi_desc.record()
                         self._outfp_write_with_check(outfp, rec)
                         progress.call(len(rec))
@@ -5841,7 +5845,7 @@ class PyCdlib:
             if not udf_rec.is_dir():
                 raise pycdlibexception.PyCdlibInvalidInput('UDF File Entry is not a directory!')
 
-            for fi_desc in udf_rec.fi_descs:
+            for fi_desc in udf_rec.fi_descs.values():
                 yield fi_desc.file_entry
         else:
             use_rr = False
@@ -6291,7 +6295,7 @@ class PyCdlib:
                     raise pycdlibexception.PyCdlibInternalError('Internal error: expected UDF File Entry while walking UDF path')
                 if not dir_record.is_dir():
                     raise pycdlibexception.PyCdlibInvalidInput('UDF File Entry is not a directory!')
-                children_iter = [fi.file_entry for fi in dir_record.fi_descs]  # type: List[Any]
+                children_iter = [fi.file_entry for fi in dir_record.fi_descs.values()]  # type: List[Any]
             else:
                 if not isinstance(dir_record, dr.DirectoryRecord):
                     raise pycdlibexception.PyCdlibInternalError('Internal error: expected ISO9660 Directory Record while walking non-UDF path')

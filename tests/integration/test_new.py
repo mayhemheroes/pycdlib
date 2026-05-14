@@ -5000,7 +5000,7 @@ def test_new_udf_above_multi_extent_threshold(tmpdir):
     iso.new(interchange_level=3, udf='2.60')
     iso.add_file(largefile, udf_path='/foo')
 
-    fe = iso.udf_root.fi_descs[1].file_entry
+    fe = list(iso.udf_root.fi_descs.values())[1].file_entry
     assert(fe.info_len == SIZE)
     assert(sum(ad.extent_length for ad in fe.alloc_descs) == SIZE)
     assert(fe.inode is not None)
