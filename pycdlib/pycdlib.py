@@ -54,9 +54,10 @@ if TYPE_CHECKING:
 # 7.3.2 - 32-bit number ,stored as big-endian
 # 7.3.3 - 32-bit number, stored first as little-endian then as big-endian (8 bytes total)
 
-# We allow A-Z, 0-9, and _ as "d1" characters.  The below is the fastest way to
-# build that list as integers.
-_allowed_d1_characters = set(tuple(range(65, 91)) + tuple(range(48, 58)) + tuple((ord(b'_'),)))
+# We allow A-Z, 0-9, and _ as "d1" characters.  bytes.translate(None, allowed)
+# strips all allowed bytes from the input in a single C call; if anything is
+# left, the input contained a disallowed character.
+_ALLOWED_D1_BYTES = bytes(range(65, 91)) + bytes(range(48, 58)) + b'_'
 
 
 def _check_d1_characters(name):
@@ -69,9 +70,8 @@ def _check_d1_characters(name):
     Returns:
      Nothing.
     """
-    for char in bytearray(name):
-        if char not in _allowed_d1_characters:
-            raise pycdlibexception.PyCdlibInvalidInput('ISO9660 filenames must consist of characters A-Z, 0-9, and _')
+    if name.translate(None, _ALLOWED_D1_BYTES):
+        raise pycdlibexception.PyCdlibInvalidInput('ISO9660 filenames must consist of characters A-Z, 0-9, and _')
 
 
 def _split_iso9660_filename(fullname):
