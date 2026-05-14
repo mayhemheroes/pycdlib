@@ -41,6 +41,21 @@ EXT_ID_112 = b'IEEE_P1282'
 EXT_DES_112 = b'THE IEEE P1282 PROTOCOL PROVIDES SUPPORT FOR POSIX FILE SYSTEM SEMANTICS'
 EXT_SRC_112 = b'PLEASE CONTACT THE IEEE STANDARDS DEPARTMENT, PISCATAWAY, NJ, USA FOR THE P1282 SPECIFICATION'
 
+# Precompiled batched unpack for the TF header (su_len, version, time_flags).
+_TF_HEADER_STRUCT = struct.Struct('=BBB')
+
+# Batched-unpack Structs for the short-form (DR-style, 7-byte) timestamp
+# body in an RRTFRecord.  Indexed by the count of enabled timestamps in
+# `time_flags & 0x7F` (0..7).  Each Struct unpacks N consecutive 7-byte
+# DR-date fields in one C call, saving N-1 struct dispatches and the
+# per-timestamp DirectoryRecordDate.__init__ + .parse() work that the
+# pre-optimization path did in a loop.
+_TF_DR_BATCH_STRUCTS = tuple(struct.Struct('=' + 'BBBBBBb' * n) for n in range(8))
+
+# Precomputed popcount for `time_flags & 0x7F`, indexing 0..127.
+_TF_FLAG_POPCOUNT = tuple(bin(i).count('1') for i in range(128))
+
+
 # Single-instance SUSP/RRIP record types -- only one of each is allowed per
 # directory record.  Each entry maps the on-disk 2-byte rtype to an
 # operator.attrgetter for the corresponding field on RockRidgeEntries.
@@ -1948,45 +1963,84 @@ class RRTFRecord:
         # so we don't bother.
 
         (su_len, su_entry_version_unused,
-         self.time_flags) = struct.unpack_from('=BBB', rrstr, 2)
+         self.time_flags) = _TF_HEADER_STRUCT.unpack_from(rrstr, 2)
         if su_len < 5:
             raise pycdlibexception.PyCdlibInvalidISO('Not enough bytes in the TF record')
 
-        tflen = 7
-        if self.time_flags & (1 << 7):
-            tflen = 17
-
-        date_cls = dates.DirectoryRecordDate if tflen == 7 else dates.VolumeDescriptorDate
         flags = self.time_flags
-        offset = 5
-        if flags & 0x01:
-            self.creation_time = date_cls()
-            self.creation_time.parse(rrstr[offset:offset + tflen])
-            offset += tflen
-        if flags & 0x02:
-            self.access_time = date_cls()
-            self.access_time.parse(rrstr[offset:offset + tflen])
-            offset += tflen
-        if flags & 0x04:
-            self.modification_time = date_cls()
-            self.modification_time.parse(rrstr[offset:offset + tflen])
-            offset += tflen
-        if flags & 0x08:
-            self.attribute_change_time = date_cls()
-            self.attribute_change_time.parse(rrstr[offset:offset + tflen])
-            offset += tflen
-        if flags & 0x10:
-            self.backup_time = date_cls()
-            self.backup_time.parse(rrstr[offset:offset + tflen])
-            offset += tflen
-        if flags & 0x20:
-            self.expiration_time = date_cls()
-            self.expiration_time.parse(rrstr[offset:offset + tflen])
-            offset += tflen
-        if flags & 0x40:
-            self.effective_time = date_cls()
-            self.effective_time.parse(rrstr[offset:offset + tflen])
-            offset += tflen
+        # Bit 7 of time_flags selects long-form (VD-style, 17 bytes per
+        # timestamp) vs short-form (DR-style, 7 bytes).  The short-form is
+        # the overwhelming common case and is parsed via a single batched
+        # struct.unpack_from over all enabled timestamps; the long-form
+        # falls back to per-timestamp parse().
+        if flags & (1 << 7):
+            offset = 5
+            if flags & 0x01:
+                self.creation_time = dates.VolumeDescriptorDate()
+                self.creation_time.parse(rrstr[offset:offset + 17])
+                offset += 17
+            if flags & 0x02:
+                self.access_time = dates.VolumeDescriptorDate()
+                self.access_time.parse(rrstr[offset:offset + 17])
+                offset += 17
+            if flags & 0x04:
+                self.modification_time = dates.VolumeDescriptorDate()
+                self.modification_time.parse(rrstr[offset:offset + 17])
+                offset += 17
+            if flags & 0x08:
+                self.attribute_change_time = dates.VolumeDescriptorDate()
+                self.attribute_change_time.parse(rrstr[offset:offset + 17])
+                offset += 17
+            if flags & 0x10:
+                self.backup_time = dates.VolumeDescriptorDate()
+                self.backup_time.parse(rrstr[offset:offset + 17])
+                offset += 17
+            if flags & 0x20:
+                self.expiration_time = dates.VolumeDescriptorDate()
+                self.expiration_time.parse(rrstr[offset:offset + 17])
+                offset += 17
+            if flags & 0x40:
+                self.effective_time = dates.VolumeDescriptorDate()
+                self.effective_time.parse(rrstr[offset:offset + 17])
+                offset += 17
+        else:
+            # Short-form fast path.  Batch-unpack every enabled 7-byte DR
+            # date in one struct call, then hand 7-tuple slices to
+            # DirectoryRecordDate.from_fields (which bypasses the per-
+            # instance __init__ and struct.unpack_from used by .parse()).
+            # The unrolled if-blocks below must stay in SUSP/RRIP bit order:
+            #   bit 0 -> creation_time
+            #   bit 1 -> access_time
+            #   bit 2 -> modification_time
+            #   bit 3 -> attribute_change_time
+            #   bit 4 -> backup_time
+            #   bit 5 -> expiration_time
+            #   bit 6 -> effective_time
+            n = _TF_FLAG_POPCOUNT[flags & 0x7F]
+            fields = _TF_DR_BATCH_STRUCTS[n].unpack_from(rrstr, 5)
+            fi = 0
+            from_fields = dates.DirectoryRecordDate.from_fields
+            if flags & 0x01:
+                self.creation_time = from_fields(*fields[fi:fi + 7])
+                fi += 7
+            if flags & 0x02:
+                self.access_time = from_fields(*fields[fi:fi + 7])
+                fi += 7
+            if flags & 0x04:
+                self.modification_time = from_fields(*fields[fi:fi + 7])
+                fi += 7
+            if flags & 0x08:
+                self.attribute_change_time = from_fields(*fields[fi:fi + 7])
+                fi += 7
+            if flags & 0x10:
+                self.backup_time = from_fields(*fields[fi:fi + 7])
+                fi += 7
+            if flags & 0x20:
+                self.expiration_time = from_fields(*fields[fi:fi + 7])
+                fi += 7
+            if flags & 0x40:
+                self.effective_time = from_fields(*fields[fi:fi + 7])
+                fi += 7
 
         self._initialized = True
 
